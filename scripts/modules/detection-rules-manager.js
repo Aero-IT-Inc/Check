@@ -84,7 +84,14 @@ export class DetectionRulesManager {
 
   async reloadConfiguration() {
     logger.log("DetectionRulesManager: Reloading configuration");
+    const previousUrl = this.remoteUrl;
     await this.loadConfiguration();
+
+    // If the remote URL changed, clear any cached rules to force a fresh fetch
+    if (previousUrl !== this.remoteUrl) {
+      logger.log("DetectionRulesManager: Remote URL changed, clearing cache");
+      await this.clearCache();
+    }
   }
 
   async loadFromCache() {
@@ -93,6 +100,14 @@ export class DetectionRulesManager {
       const cached = result?.[this.cacheKey];
 
       if (cached && cached.rules && cached.lastUpdate) {
+        // Ignore cache entries from a different source
+        if (cached.source && cached.source !== this.remoteUrl) {
+          logger.log(
+            "Cached detection rules source does not match current remote URL"
+          );
+          return false;
+        }
+
         // Check if cache is still valid
         const now = Date.now();
         const cacheAge = now - cached.lastUpdate;
@@ -181,6 +196,17 @@ export class DetectionRulesManager {
       logger.error("Failed to load local detection rules:", error.message);
       throw error;
     }
+  }
+
+  async clearCache() {
+    try {
+      await chrome.storage.local.remove([this.cacheKey]);
+    } catch (_) {
+      // Ignore storage cleanup errors
+    }
+
+    this.cachedRules = null;
+    this.lastUpdate = 0;
   }
 
   async updateDetectionRules() {
